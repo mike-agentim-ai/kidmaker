@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>מכונת המשחקים 🎮</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-family:-apple-system,"Segoe UI",Arial,sans-serif;}
+  html,body{height:100%;overflow:hidden;background:#0b1026;color:#fff;}
+  #app{position:fixed;inset:0;display:flex;flex-direction:column;}
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+          text-align:center;padding:22px;overflow-y:auto;transition:opacity .3s;}
+  .hidden{display:none !important;}
+  h1{font-size:clamp(24px,7vw,46px);margin-bottom:8px;background:linear-gradient(90deg,#ffcc00,#ff5a9e,#7ec8ff);
+     -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+  .sub{opacity:.8;font-size:clamp(14px,4vw,18px);margin-bottom:26px;}
+  .prompt-box{width:min(94vw,540px);}
+  textarea{width:100%;min-height:96px;font-size:18px;padding:16px;border-radius:18px;border:2px solid rgba(255,255,255,.25);
+           background:rgba(255,255,255,.08);color:#fff;resize:none;text-align:inherit;}
+  textarea::placeholder{color:rgba(255,255,255,.45);}
+  .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:14px;align-items:center;}
+  .big{font-size:20px;font-weight:900;padding:15px 30px;border:none;border-radius:16px;background:#ffcc00;color:#222;box-shadow:0 5px 0 #c99a00;cursor:pointer;}
+  .big:active{transform:translateY(4px);box-shadow:0 1px 0 #c99a00;}
+  .mic{width:70px;height:70px;border-radius:50%;background:#ff5a9e;color:#fff;font-size:30px;border:none;box-shadow:0 5px 0 #c02d6e;cursor:pointer;}
+  .mic.rec{animation:pulse .8s infinite;background:#ff2d6e;}
+  @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.12);}}
+  .langs{display:flex;gap:8px;justify-content:center;margin-bottom:20px;flex-wrap:wrap;}
+  .lang{padding:8px 16px;border-radius:20px;border:2px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);
+        color:#fff;font-weight:700;cursor:pointer;font-size:15px;}
+  .lang.sel{border-color:#ffcc00;background:rgba(255,204,0,.2);}
+  .examples{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:18px;max-width:560px;}
+  .chip{padding:8px 14px;border-radius:16px;background:rgba(255,255,255,.1);font-size:14px;cursor:pointer;border:1px solid rgba(255,255,255,.15);}
+  .chip:active{background:rgba(255,255,255,.25);}
+  .spinner{width:56px;height:56px;border:6px solid rgba(255,255,255,.2);border-top-color:#ffcc00;border-radius:50%;animation:spin 1s linear infinite;margin:20px auto;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .steps{font-size:15px;opacity:.85;line-height:2;}
+  .step.done{color:#3fd07a;} .step.active{color:#ffcc00;font-weight:800;}
+  #gameHost{position:absolute;inset:0;}
+  #backBtn{position:fixed;top:10px;left:12px;z-index:50;background:rgba(0,0,0,.5);color:#fff;border:none;
+           border-radius:12px;padding:8px 14px;font-size:14px;font-weight:700;cursor:pointer;}
+  .err{color:#ff8a5a;margin-top:14px;font-size:15px;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- PROMPT SCREEN -->
+  <div id="promptScreen" class="screen">
+    <h1>מכונת המשחקים 🎮</h1>
+    <div class="sub" id="subText">ספר לי איזה משחק אתה רוצה — ואני אבנה לך אותו!</div>
+    <div class="langs" id="langs"></div>
+    <div class="prompt-box">
+      <textarea id="prompt" placeholder="לדוגמה: סוניק ושאדו נגד גורילה וספיידרמן"></textarea>
+      <div class="row">
+        <button class="mic" id="micBtn" title="דבר">🎤</button>
+        <button class="big" id="makeBtn">בנה לי משחק! ✨</button>
+      </div>
+    </div>
+    <div class="examples" id="examples"></div>
+    <div class="err hidden" id="err"></div>
+  </div>
+
+  <!-- BUILDING SCREEN -->
+  <div id="buildScreen" class="screen hidden">
+    <h1 id="buildTitle">בונה את המשחק...</h1>
+    <div class="spinner"></div>
+    <div class="steps">
+      <div class="step" id="s1">🧠 חושב על המשחק</div>
+      <div class="step" id="s2">🎨 מצייר את הדמויות</div>
+      <div class="step" id="s3">🕹️ מרכיב את המשחק</div>
+    </div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="gameScreen" class="screen hidden" style="padding:0;">
+    <button id="backBtn" class="hidden">⬅ משחק חדש</button>
+    <div id="gameHost"></div>
+  </div>
+
+</div>
+
+<script type="module">
+import { ENGINES } from './engines/registry.js';
+
+// ---- config ----
+const API = (window.KIDMAKER_API || '').replace(/\/$/,'');   // backend base url; '' = demo/offline
+let lang = 'he';
+
+const L = {
+  he:{ sub:'ספר לי איזה משחק אתה רוצה — ואני אבנה לך אותו!', ph:'לדוגמה: סוניק ושאדו נגד גורילה וספיידרמן',
+       make:'בנה לי משחק! ✨', back:'⬅ משחק חדש', think:'🧠 חושב על המשחק', draw:'🎨 מצייר את הדמויות',
+       build:'🕹️ מרכיב את המשחק', building:'בונה את המשחק...', empty:'קודם ספר לי איזה משחק 🙂',
+       err:'משהו השתבש. נסה שוב 🙂', examples:['סוניק ושאדו נגד גורילה','איקס עיגול','אבן נייר ומספרים','מרוץ מכוניות בחלל'] },
+  en:{ sub:'Tell me what game you want — and I\'ll build it!', ph:'e.g. Sonic and Shadow vs Gorilla and Spiderman',
+       make:'Build my game! ✨', back:'⬅ New game', think:'🧠 Thinking of the game', draw:'🎨 Drawing characters',
+       build:'🕹️ Assembling the game', building:'Building the game...', empty:'Tell me a game first 🙂',
+       err:'Something went wrong. Try again 🙂', examples:['Sonic and Shadow vs Gorilla','Tic-Tac-Toe','Rock paper scissors','Space car race'] },
+};
+
+// ---- language picker ----
+const langsEl=document.getElementById('langs');
+[['he','עברית'],['en','English']].forEach(([code,name])=>{
+  const b=document.createElement('div'); b.className='lang'+(code===lang?' sel':''); b.textContent=name;
+  b.onclick=()=>{ lang=code; applyLang(); document.querySelectorAll('.lang').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); };
+  langsEl.appendChild(b);
+});
+function applyLang(){
+  const t=L[lang]; document.documentElement.lang=lang; document.documentElement.dir = lang==='he'?'rtl':'ltr';
+  document.getElementById('subText').textContent=t.sub;
+  document.getElementById('prompt').placeholder=t.ph;
+  document.getElementById('makeBtn').textContent=t.make;
+  document.getElementById('backBtn').textContent=t.back;
+  const ex=document.getElementById('examples'); ex.innerHTML='';
+  t.examples.forEach(e=>{ const c=document.createElement('div'); c.className='chip'; c.textContent=e;
+    c.onclick=()=>{ document.getElementById('prompt').value=e; }; ex.appendChild(c); });
+}
+applyLang();
+
+// ---- voice input (Web Speech API) ----
+const micBtn=document.getElementById('micBtn');
+let recog=null, recording=false;
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if(SR){
+  micBtn.onclick=()=>{
+    if(recording){ recog && recog.stop(); return; }
+    recog=new SR(); recog.lang = lang==='he'?'he-IL':'en-US'; recog.interimResults=true; recog.continuous=false;
+    let txt='';
+    recog.onresult=e=>{ txt=Array.from(e.results).map(r=>r[0].transcript).join(''); document.getElementById('prompt').value=txt; };
+    recog.onend=()=>{ recording=false; micBtn.classList.remove('rec'); };
+    recog.onerror=()=>{ recording=false; micBtn.classList.remove('rec'); };
+    recog.start(); recording=true; micBtn.classList.add('rec');
+  };
+} else {
+  micBtn.style.opacity=.4; micBtn.title='הדפדפן לא תומך בקול';
+  micBtn.onclick=()=>{ document.getElementById('prompt').focus(); };
+}
+
+// ---- build flow ----
+const show=id=>{ ['promptScreen','buildScreen','gameScreen'].forEach(s=>document.getElementById(s).classList.add('hidden')); document.getElementById(id).classList.remove('hidden'); };
+const setStep=(id,cls)=>{ const e=document.getElementById(id); e.className='step '+cls; };
+
+document.getElementById('makeBtn').onclick=build;
+document.getElementById('backBtn').onclick=()=>{ if(current){ current.destroy&&current.destroy(); current=null; } document.getElementById('gameHost').innerHTML=''; show('promptScreen'); };
+
+let current=null;
+
+async function build(){
+  const t=L[lang];
+  const prompt=document.getElementById('prompt').value.trim();
+  const errEl=document.getElementById('err'); errEl.classList.add('hidden');
+  if(!prompt){ errEl.textContent=t.empty; errEl.classList.remove('hidden'); return; }
+
+  show('buildScreen');
+  document.getElementById('buildTitle').textContent=t.building;
+  setStep('s1','active'); setStep('s2',''); setStep('s3','');
+
+  try{
+    // 1) PLAN — get the game spec from GPT (or offline heuristic)
+    const spec = await getPlan(prompt, lang);
+    setStep('s1','done'); setStep('s2', spec.generate && spec.generate.length ? 'active':'done');
+
+    // 2) CHARACTERS — generate sprites if needed
+    const assets = {};
+    if(spec.needsCharacters && spec.generate && spec.generate.length && API){
+      await Promise.all(spec.generate.map(async g=>{
+        try{
+          const r=await fetch(API+'/api/character',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(g)});
+          const d=await r.json(); if(d.img) assets[g.key]=d.img;
+        }catch(e){}
+      }));
+    }
+    setStep('s2','done'); setStep('s3','active');
+
+    // 3) BUILD — pick engine and run
+    const make = ENGINES[spec.genre] || ENGINES['brawler'];
+    const host=document.getElementById('gameHost'); host.innerHTML='';
+    current = make(spec, assets, host);
+    setStep('s3','done');
+    show('gameScreen'); document.getElementById('backBtn').classList.remove('hidden');
+    current.start();
+  }catch(e){
+    console.error(e);
+    const errEl=document.getElementById('err'); errEl.textContent=L[lang].err; errEl.classList.remove('hidden');
+    show('promptScreen');
+  }
+}
+
+// PLAN: call backend if configured, else a local heuristic so it works offline for demos
+async function getPlan(prompt, language){
+  if(API){
+    const r=await fetch(API+'/api/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,language})});
+    if(!r.ok) throw new Error('plan failed');
+    return await r.json();
+  }
+  return heuristicPlan(prompt, language);
+}
+
+// offline fallback so the platform is playable without a backend
+function heuristicPlan(p, language){
+  const s=p.toLowerCase();
+  const has=(...w)=>w.some(x=>s.includes(x));
+  if(has('איקס','עיגול','tic','tac','xo')) return {title:p,genre:'tictactoe',language,needsSides:false,needsCharacters:false,levels:3,generate:[]};
+  if(has('אבן','נייר','מספר','rock','paper','scissor')) return {title:p,genre:'rps',language,needsSides:false,needsCharacters:false,levels:3,generate:[]};
+  if(has('מרוץ','מכונ','race','car','רכב')) return {title:p,genre:'racer',language,needsSides:false,needsCharacters:true,levels:3,generate:[]};
+  if(has('שחמט','chess')) return {title:p,genre:'board',language,needsSides:true,needsCharacters:true,levels:1,generate:[]};
+  // default: brawler, split "X vs Y"
+  const parts=p.split(/נגד|vs|מול/i);
+  const team=(parts[0]||'').split(/[,ו]| and /).map(x=>x.trim()).filter(Boolean);
+  const foes=(parts[1]||'').split(/[,ו]| and /).map(x=>x.trim()).filter(Boolean);
+  return {title:p,genre:'brawler',language,needsSides:true,needsCharacters:true,levels:3,
+          sides:[{label:'הקבוצה שלי',members:team.length?team:['גיבור']},{label:'היריבים',members:foes.length?foes:['אויב']}],generate:[]};
+}
+</script>
+</body>
+</html>
