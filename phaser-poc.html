@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Phaser Brawler POC</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;background:#0b1026;font-family:-apple-system,Arial,sans-serif;}
+  #game{position:fixed;inset:0;}
+  .btn{position:absolute;bottom:20px;width:76px;height:76px;border-radius:50%;background:rgba(255,255,255,.2);
+       border:3px solid rgba(255,255,255,.55);color:#fff;font-size:30px;font-weight:900;display:flex;align-items:center;
+       justify-content:center;user-select:none;touch-action:none;z-index:10;backdrop-filter:blur(4px);}
+  .btn:active{background:rgba(255,255,255,.45);transform:scale(.93);}
+  #bL{left:16px;} #bR{left:104px;} #bJ{right:110px;} #bH{right:16px;width:92px;height:92px;background:rgba(255,70,70,.4);border-color:rgba(255,150,150,.9);font-size:38px;}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div class="btn" id="bL">◀</div>
+<div class="btn" id="bR">▶</div>
+<div class="btn" id="bJ">⤴</div>
+<div class="btn" id="bH">👊</div>
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+const keys={left:false,right:false};
+const bind=(id,k)=>{const el=document.getElementById(id);const s=v=>e=>{e.preventDefault();keys[k]=v;};
+  el.addEventListener('touchstart',s(true),{passive:false});el.addEventListener('touchend',s(false),{passive:false});
+  el.addEventListener('mousedown',s(true));el.addEventListener('mouseup',s(false));el.addEventListener('mouseleave',s(false));};
+bind('bL','left');bind('bR','right');
+let jumpReq=false,hitReq=false;
+const tap=(id,fn)=>{const el=document.getElementById(id);const h=e=>{e.preventDefault();fn();};el.addEventListener('touchstart',h,{passive:false});el.addEventListener('mousedown',h);};
+tap('bJ',()=>jumpReq=true); tap('bH',()=>hitReq=true);
+
+class Play extends Phaser.Scene{
+  preload(){
+    this.load.image('sky','assets/bg/sky.jpg');
+    this.load.image('hero','assets/chars/blaze.png');
+    this.load.image('ally','assets/chars/nova.png');
+    this.load.image('boss','assets/chars/rocky.png');
+  }
+  create(){
+    const W=this.scale.width,H=this.scale.height;
+    this.worldW=2600;
+    this.physics.world.setBounds(0,0,this.worldW,H);
+    // parallax sky (3 layers at different scroll factors)
+    this.bg1=this.add.tileSprite(0,0,W,H,'sky').setOrigin(0).setScrollFactor(0).setTint(0xbfe3ff);
+    this.bg2=this.add.tileSprite(0,H*0.15,W,H*0.7,'sky').setOrigin(0).setScrollFactor(0.3).setAlpha(0.6);
+    // ground
+    this.groundY=H*0.82;
+    const g=this.add.rectangle(0,this.groundY,this.worldW,H*0.3,0x5fa93f).setOrigin(0,0);
+    this.physics.add.existing(g,true);
+    // hero
+    this.hero=this.physics.add.image(120,this.groundY-80,'hero').setDisplaySize(90,110);
+    this.hero.body.setSize(50,90).setOffset(20,15);
+    this.hero.setCollideWorldBounds(true);
+    this.physics.add.collider(this.hero,g);
+    this.cameras.main.setBounds(0,0,this.worldW,H);
+    this.cameras.main.startFollow(this.hero,true,0.1,0.1);
+    // boss
+    this.boss=this.physics.add.image(this.worldW-300,this.groundY-90,'boss').setDisplaySize(130,150);
+    this.boss.hp=5; this.boss.setImmovable(true);
+    this.physics.add.collider(this.boss,g);
+    this.physics.add.overlap(this.hero,this.boss,()=>{},null,this);
+    // particle-ish: use simple emitter via graphics
+    this.score=0; this.heroHp=5; this.punch=0; this.face=1;
+    this.hudText=this.add.text(W/2,20,'',{fontSize:'22px',fontFamily:'Arial',color:'#fff',fontStyle:'bold'}).setOrigin(0.5,0).setScrollFactor(0).setShadow(2,2,'#000',4);
+    // finish flag
+    this.add.text(this.worldW-120,this.groundY-60,'🏁',{fontSize:'50px'});
+    // simple hit feedback text pool
+    this.cameras.main.setBackgroundColor('#6db3ff');
+  }
+  bam(x,y,txt,color){
+    const t=this.add.text(x,y,txt,{fontSize:'34px',fontFamily:'Arial',color:color||'#ffd23f',fontStyle:'bold'}).setOrigin(0.5).setStroke('#000',6);
+    this.tweens.add({targets:t,y:y-50,scale:1.4,alpha:0,duration:600,onComplete:()=>t.destroy()});
+    // burst
+    for(let i=0;i<12;i++){const p=this.add.circle(x,y,4,0xffd23f);this.tweens.add({targets:p,x:x+(Math.random()-.5)*120,y:y+(Math.random()-.5)*120,alpha:0,duration:400,onComplete:()=>p.destroy()});}
+    this.cameras.main.shake(120,0.008);
+  }
+  doHit(){
+    if(this.boss.hp<=0)return;
+    const dx=Math.abs(this.hero.x-this.boss.x);
+    if(dx<120){ this.boss.hp--; this.score+=100; this.bam(this.boss.x,this.boss.y-40,'BAM!','#ff5a3c');
+      this.tweens.add({targets:this.boss,x:this.boss.x+this.face*30,duration:120,yoyo:true});
+      this.boss.setTint(0xff8888); this.time.delayedCall(150,()=>this.boss.clearTint());
+      if(this.boss.hp<=0){ this.boss.setTint(0x888888); this.add.text(this.scale.width/2,this.scale.height/2,'🏆 YOU WIN!',{fontSize:'48px',color:'#ffd23f',fontStyle:'bold'}).setOrigin(0.5).setScrollFactor(0).setStroke('#000',8); }
+    } else { this.bam(this.hero.x+this.face*50,this.hero.y,'woosh','#fff'); }
+  }
+  update(){
+    const spd=260;
+    if(keys.left){this.hero.setVelocityX(-spd);this.face=-1;this.hero.setFlipX(true);}
+    else if(keys.right){this.hero.setVelocityX(spd);this.face=1;this.hero.setFlipX(false);}
+    else this.hero.setVelocityX(0);
+    if(jumpReq){ jumpReq=false; if(this.hero.body.blocked.down||this.hero.body.touching.down) this.hero.setVelocityY(-560); }
+    if(hitReq){ hitReq=false; this.doHit(); }
+    // parallax
+    this.bg1.tilePositionX=this.cameras.main.scrollX*0.1;
+    this.bg2.tilePositionX=this.cameras.main.scrollX*0.3;
+    // boss walks toward hero
+    if(this.boss.hp>0){ const d=this.hero.x<this.boss.x?-1:1; this.boss.x+=d*0.6; }
+    this.hudText.setText('❤️'.repeat(Math.max(0,this.heroHp))+'   ⭐'+this.score+'   Boss:'+'❤️'.repeat(Math.max(0,this.boss.hp)));
+  }
+}
+new Phaser.Game({
+  type:Phaser.AUTO, parent:'game', width:window.innerWidth, height:window.innerHeight,
+  physics:{default:'arcade',arcade:{gravity:{y:1400},debug:false}},
+  scale:{mode:Phaser.Scale.RESIZE}, scene:Play, backgroundColor:'#6db3ff'
+});
+</script>
+</body>
+</html>
