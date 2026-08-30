@@ -65,15 +65,16 @@ export function createGame(spec, assets, mount){
   }
   function draw(){
     ctx.fillStyle='#2a2a3e'; ctx.fillRect(0,0,W,H);
+    if(state==='ready'||!car){ return; }   // nothing to draw until a race starts
     ctx.save(); if(shake>0){ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);shake*=.9;if(shake<.5)shake=0;}
     // road
     const rw=W*0.7, rx=(W-rw)/2; ctx.fillStyle='#3a3a4e'; ctx.fillRect(rx,0,rw,H);
-    ctx.fillStyle='#ffd23f'; lines.forEach(l=>ctx.fillRect(W/2-4,l.y,8,30));
+    ctx.fillStyle='#ffd23f'; (lines||[]).forEach(l=>ctx.fillRect(W/2-4,l.y,8,30));
     ctx.strokeStyle='#fff'; ctx.lineWidth=5; ctx.strokeRect(rx,0,rw,H);
     // finish line near goal
     if(goal-dist<H){ const fy=H-(goal-dist); for(let i=0;i<rw/20;i++){ctx.fillStyle=(i%2)?'#fff':'#000';ctx.fillRect(rx+i*20,fy,20,20);} }
     // obstacles
-    obstacles.forEach(o=>{ctx.font='36px serif';ctx.textAlign='center';ctx.fillText(o.emoji,rx+o.x*rw*0+ (o.x*W),o.y*H);});
+    (obstacles||[]).forEach(o=>{ctx.font='36px serif';ctx.textAlign='center';ctx.fillText(o.emoji,o.x*W,o.y*H);});
     // car
     const cx=car.x*W, cy=car.y*H;
     if(img&&img.complete&&img.naturalWidth>0){ ctx.drawImage(img,cx-30,cy-36,60,72); }
